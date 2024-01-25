@@ -1,7 +1,11 @@
-orjson
-torch
-gluonts>=0.13.5
-pytorch-lightning
+--index-url https://download.pytorch.org/whl/cu118
+--extra-index-url https://pypi.org/simple
+torch==2.0.0
+torchvision==0.15.1
+torchaudio==2.0.1
+numpy==1.23.5
+gluonts==0.13.3
+pytorch_lightning==2.0.4
 datasets
 xformers
 git+https://github.com/kashif/hopfield-layers@pytorch-2
@@ -13,3 +17,5 @@ pykeops
 scipy
 apex
 git+https://github.com/microsoft/torchscale
+wandb
+orjson
