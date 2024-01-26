@@ -22,12 +22,15 @@ import pytorch_lightning as pl
 from gluonts.evaluation import make_evaluation_predictions, Evaluator
 from gluonts.evaluation._base import aggregate_valid
 from gluonts.dataset.repository.datasets import get_dataset
-from gluonts.dataset.common import ListDataset
+from gluonts.dataset.common import ListDataset, load_datasets
 from gluonts.transform import ValidationSplitSampler
 
 from estimator import LagLlamaEstimator
 import os
 
+import matplotlib.pyplot as plt
+
+# %%
 #dataset_path = Path("/home/toolkit/datasets")
 dataset_path = Path("/mnt/data/home/yxl/test/test_ai/datasets")
 
@@ -139,6 +142,57 @@ def create_test_dataset(name, window_size):
             data.append(x)
     return ListDataset(data, freq=freq), prediction_length
 
+psml_raw_dataset_names = ['psml_pmu0_1min', 'psml_pmu1_1min', 'psml_pmu2_1min']
+psml_23bus_ts_targets = ['Vm', 'Va'] # Voltage magnitude, Voltage angle
+psml_dataset_names = [dname + '_' + ts_target for dname in psml_raw_dataset_names for ts_target in psml_23bus_ts_targets]
+
+def create_psml_sliding_window_dataset(name, window_size, is_train=True):
+    psml_dataset_path = dataset_path / name
+    d = load_datasets(
+        metadata=psml_dataset_path,
+        train=psml_dataset_path / "train",
+        test=psml_dataset_path / "test",
+    )
+    global_id = 0
+    data = ListDataset([], freq=d.metadata.freq)
+    dataset = d.train if is_train else d.test
+    for x in dataset:
+        windows = []
+        for i in range(0, len(x['target']), window_size):
+            windows.append({
+                'target': x['target'][i:i+window_size],
+                'start': x['start'] + i,
+                'item_id': str(global_id),
+                'feat_static_cat': np.array([0]),
+            })
+            global_id += 1
+        data += ListDataset(windows, freq=d.metadata.freq)
+    return data
+
+def create_psml_test_dataset(name, window_size):
+    # Similar to `create_sliding_window_dataset` but for test dataset
+    psml_dataset_path = dataset_path / name
+    dataset = load_datasets(
+        metadata=psml_dataset_path,
+        train=psml_dataset_path / "train",
+        test=psml_dataset_path / "test",
+    )
+    freq = dataset.metadata.freq
+    prediction_length = dataset.metadata.prediction_length
+
+    data = []
+    for x in dataset.test:
+        offset = len(x['target']) - window_size - prediction_length
+        if offset > 0:
+            target = x['target'][-(window_size + prediction_length):]
+            data.append({
+                'target': target,
+                'start': x['start'] + offset,
+            })
+        else:
+            data.append(x)
+    return ListDataset(data, freq=freq), prediction_length
+
 # %%
 print("YL training on gpus:", torch.cuda.device_count())
 # parser = argparse.ArgumentParser()
@@ -182,12 +236,16 @@ max_epoch = -1
 if "lightning_logs" in os.listdir(fulldir_experiments):
     for lightning_version in os.listdir(fulldir_experiments+"/lightning_logs/"):
         ckpts = glob(fulldir_experiments+"/lightning_logs/" + lightning_version + "/checkpoints/*.ckpt")
-        if len(ckpts): 
-            epoch = int(ckpts[0][ckpts[0].find("=")+1:ckpts[0].find("-step")])
+        #print("ckpts : ", ckpts)
+        #if len(ckpts): 
+        for ckpt in ckpts:
+            #epoch = int(ckpts[0][ckpts[0].find("=")+1:ckpts[0].find("-step")])
+            epoch = int(ckpt[ckpt.find("=")+1:ckpt.find("-step")])
             if epoch > max_epoch:
                 lightning_version_to_use = lightning_version
                 max_epoch = epoch
-                ckpt_path = ckpts[0]
+                #ckpt_path = ckpts[0]
+                ckpt_path = ckpt
     if lightning_version_to_use: print("Using lightning_version", lightning_version_to_use, "with epoch", max_epoch, "restoring from checkpoint at path", ckpt_path)
 else: print ("no lightning logs found. Training from scratch.")
 
@@ -240,27 +298,51 @@ estimator.validation_sampler = ValidationSplitSampler(
 )
 
 # %%
+print('lag-llama window_size:', window_size)
+
+# %%
 # DEBUG: test sliding window and test data generation
-ex_data_name = 'traffic' # 'm4_weekly'
-ex_dataset = get_dataset(ex_data_name, path=dataset_path)
+# ex_data_name = 'traffic' # 'm4_weekly'
+# ex_dataset = get_dataset(ex_data_name, path=dataset_path)
 
 # %%
-print(ex_dataset.metadata)
-print('num_train_items:', len(ex_dataset.train))
-for x in ex_dataset.train:
-    print(x['target'].shape, x['start'], x['item_id'])
+# print(ex_dataset.metadata)
+# print('num_train_items:', len(ex_dataset.train))
+# for x in ex_dataset.train:
+#     print(x['target'].shape, x['start'], x['item_id'])
 
 # %%
-print('num_test_items:', len(ex_dataset.test))
-for x in ex_dataset.test:
-    print(x['target'].shape, x['start'], x['item_id'])
-    
+# print('num_test_items:', len(ex_dataset.test))
+# for x in ex_dataset.test:
+#     print(x['target'].shape, x['start'], x['item_id'])
+
 # %%
+# DEBUG: test psml data loading
+# ex_data_name = psml_dataset_names[0]
+# ex_train_data = create_psml_sliding_window_dataset(ex_data_name, window_size)
+# ex_val_data = create_psml_sliding_window_dataset(ex_data_name, window_size, is_train=False)
+# ex_test_data, ex_prediction_length = create_psml_test_dataset(ex_data_name, window_size)
+
+# %%
+# len(ex_train_data), len(ex_val_data), len(ex_test_data)
+
+
+
+# %%
+test = True # only set test=True to get the plots
 if test:
     print('Testing only')
 else:
     # Create training data
     train_data, val_data = [], []
+    # YL start
+    for name in psml_dataset_names[0:4]: # case 0, case 1 for training
+        new_data = create_psml_sliding_window_dataset(name, window_size)
+        train_data.append(new_data)
+
+        new_data = create_psml_sliding_window_dataset(name, window_size, is_train=False)
+        val_data.append(new_data)
+    # YL end
     for name in TRAIN_DATASET_NAMES:
         new_data = create_sliding_window_dataset(name, window_size)
         train_data.append(new_data)
@@ -283,14 +365,46 @@ else:
         validation_data=val_data,
         ckpt_path=ckpt_path
     )
+if not test:
+    estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
 
-estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
+# %%
 print(f'Use checkpoint: {estimator.ckpt_path}')
 
+# %%
+def plot_pred_results(forecasts, tss, name, odir):
+    psml_23bus_graph_nodes = ['101', '102', '151', '152', '153', '154', '201', '202', '203', '204', '205', '206', '211', '3001', '3002', '3003', '3004', '3005', '3006', '3007', '3008', '3011', '3018']
+
+    # psml test data order: (node/bus, rolling eval): timesteps data
+    num_buses = 23
+    num_rolling_evals = 6
+    #prediction_length, num_buses, num_rolling_evals
+
+    fig, axes = plt.subplots(num_buses, 1, figsize=(10, num_buses * 5))
+    for i, ax in enumerate(axes):
+        ax.plot(tss[i * num_rolling_evals][-120:].to_timestamp())
+        plt.sca(ax)
+        forecasts[i * num_rolling_evals].plot(intervals=(0.5, 0.8, 0.9, 0.95), color='m')
+        plt.legend(['ground truth', 'pred mean', '0.5', '0.8', '0.9', '0.95'])
+        plt.title(str(i) + ' : bus ' + psml_23bus_graph_nodes[i])
+    plt.savefig(odir + '/' + 'perf_pred_allbuses_' + name + '.png')
+
+    fig, axes = plt.subplots(num_buses, 1, figsize=(10, num_buses * 5))
+    for i, ax in enumerate(axes):
+        ax.plot(tss[i * num_rolling_evals].to_timestamp())
+        plt.sca(ax)
+        plt.title(str(i) + ' : bus ' + psml_23bus_graph_nodes[i] + ' [timesteps: ' + str(len(tss[i * num_rolling_evals])) + ']')
+    plt.savefig(odir + '/' + 'testdata_allbuses_' + name + '.png')
+
+# %%
 # for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES:
-for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
+#for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
+for name in psml_dataset_names[4:]: # PSML case 2, Vm and Va
     print(f'Predict on {name}')
-    test_data, prediction_length = create_test_dataset(name, window_size)
+    if name in psml_dataset_names[4:]:
+        test_data, prediction_length = create_psml_test_dataset(name, window_size)
+    else:
+        test_data, prediction_length = create_test_dataset(name, window_size)
     print(f'{name} prediction length: {prediction_length}')
 
     # Adapt evaluator to new dataset
@@ -308,6 +422,10 @@ for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
 
     forecasts = list(forecast_it)
     tss = list(ts_it)
+
+    plot_pred_results(forecasts, tss, name, logger.log_dir)
+
+    continue
 
     evaluator = Evaluator(num_workers=1, aggregation_strategy=aggregate_valid)
     agg_metrics, item_metrics = evaluator(
@@ -329,7 +447,15 @@ for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
 
     item_metrics.to_csv(f'{logger.log_dir}/{name}_item_metrics.csv')
 
+# %%
+# DEBUG: vis test results
+import matplotlib.pyplot as plt
 
+
+
+plot_pred_results(forecasts, tss, name, logger.log_dir)
+# %%
+tss[0].shape, window_size, prediction_length
 # %%
 # DEBUG: vis test results
 import json

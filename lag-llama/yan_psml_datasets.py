@@ -154,8 +154,8 @@ for raw_dataset_name in psml_raw_dataset_names:
         ]
 
         # construct train time series
-        train_timeseries = []
-        test_timeseries = []
+        train_timeseries = [] # dims: [node/bus, ts_length]
+        test_timeseries = [] # dims: [node/bus, rolling_eval, ts_length]
         for cat, bus_id in enumerate(raw_dataset['graph_nodes']):
             ts = df_ts_target[ts_target + '_' + bus_id]
             ts = pd.Series(ts.values, index=time_index) # reindex with time_index
