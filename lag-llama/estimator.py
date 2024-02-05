@@ -133,6 +133,8 @@ class LagLlamaEstimator(PyTorchLightningEstimator):
                     + get_lags_for_frequency(freq_str="H", num_default_lags=1)
                     + get_lags_for_frequency(freq_str="T", num_default_lags=1)
                     + get_lags_for_frequency(freq_str="S", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="L", num_default_lags=1)
+                    + get_lags_for_frequency(freq_str="U", num_default_lags=1)
                 )
             )
         )

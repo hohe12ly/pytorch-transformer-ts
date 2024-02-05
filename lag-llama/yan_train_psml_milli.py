@@ -1,11 +1,14 @@
+## training and testing on PSML Millisecond Forced Oscillation dataset
+
 import argparse
 import json
 import random
 import numpy as np
+import pandas as pd
 
 # YL
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 import torch
 from pytorch_lightning.loggers import CSVLogger
@@ -28,6 +31,8 @@ from estimator import LagLlamaEstimator
 import os
 
 import matplotlib.pyplot as plt
+
+import glob
 
 #dataset_path = Path("/home/toolkit/datasets")
 dataset_path = Path("/mnt/data/home/yxl/test/test_ai/datasets")
@@ -136,9 +141,52 @@ def create_test_dataset(name, window_size):
     return ListDataset(data, freq=freq), prediction_length
 
 # YL start
-psml_raw_dataset_names = ['psml_pmu0_1min', 'psml_pmu1_1min', 'psml_pmu2_1min']
-psml_23bus_ts_targets = ['Vm', 'Va'] # Voltage magnitude, Voltage angle
-psml_dataset_names = [dname + '_' + ts_target for dname in psml_raw_dataset_names for ts_target in psml_23bus_ts_targets]
+# PSML Millisecond Forced Oscillation dataset
+psml_milli_dataset_names = [ os.path.basename(p) for p in glob.glob(str(dataset_path / "Forced_Oscillation_*")) ]
+
+def generate_column_map():
+    sample_dir = '/mnt/data/home/yxl/data/PSML/milli-pmu/Forced_Oscillation/row_2'
+    sample_trans = sample_dir + '/trans.csv'
+    df = pd.read_csv(sample_trans, sep='\s*,\s*',)
+    cols = df.columns.values
+    column_map = {} # for trans.csv
+    for col in cols:
+        col1 = col.strip()
+        if col1.startswith('Time(s)'):
+            column_map[col] = 'Time'
+        elif col1.startswith('VOLT '):
+            column_map[col] = 'Bus_' + col1.split(' ')[1] # ' VOLT 205 [SUB230 230.00]'
+        elif col1.startswith('POWR ') or col1.startswith('VARS '):
+            strs = col1.split(' ') # " VARS 101 TO 151 CKT '1 '", " POWR 102 TO 151 CKT '1 '"
+            edge_index = strs[5].split("'")[1] # '1, '2
+            vtype = 'P' # POWR, active power voltage
+            if strs[0].startswith('VARS'):
+                vtype = 'Q' # VARS, reactive power voltage
+            column_map[col] = vtype + '_' + strs[1] + '_' + strs[3] + '_' + edge_index
+        else:
+            raise ValueError('Unknown column name pattern:', col1)
+    sample_dist = sample_dir + '/dist.csv'
+    df = pd.read_csv(sample_dist, sep='\s*,\s*',)
+    cols = df.columns.values
+    dist_column_map = {} # for dist.csv
+    for col in cols:
+        col1 = col.strip()
+        if col1.startswith('Time(s)'):
+            dist_column_map[col] = 'Time'
+        else:
+            dist_column_map[col] = col1
+    return column_map, dist_column_map
+
+data_column_map_trans, data_column_map_dist = generate_column_map() 
+
+column_map = {
+    'trans': data_column_map_trans,
+    'dist': data_column_map_dist,
+}
+datacolumn_list = {
+    'trans': list(data_column_map_trans.values())[1:], # skip 'Time'
+    'dist': list(data_column_map_dist.values())[1:], # skip 'Time'
+}
 
 def create_psml_sliding_window_dataset(name, window_size, is_train=True):
     psml_dataset_path = dataset_path / name
@@ -227,7 +275,6 @@ def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, predictio
                 '_at_rollingeval_' + str(rolling_eval_index) +
                 '.png')
 
-psml_23bus_graph_nodes = ['101', '102', '151', '152', '153', '154', '201', '202', '203', '204', '205', '206', '211', '3001', '3002', '3003', '3004', '3005', '3006', '3007', '3008', '3011', '3018']
 
 # YL end
 
@@ -315,7 +362,7 @@ def train(args):
         # Create training data
         train_data, val_data = [], []
         # YL start
-        for name in psml_dataset_names[0:4]: # case 0, case 1 for training
+        for name in psml_milli_dataset_names[:480]: # case 0, case 1 for training
             new_data = create_psml_sliding_window_dataset(name, window_size)
             train_data.append(new_data)
 
@@ -349,9 +396,9 @@ def train(args):
     print(f'Use checkpoint: {estimator.ckpt_path}')
 
     # for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES:
-    for name in psml_dataset_names[4:] + ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
+    for name in psml_milli_dataset_names[-20:] + ['m4_weekly', 'traffic']: # + TRAIN_DATASET_NAMES[0:5]:
         print(f'Predict on {name}')
-        if name in psml_dataset_names[4:]:
+        if name in psml_milli_dataset_names[-20:]:
             test_data, prediction_length = create_psml_test_dataset(name, window_size)
         else:
             test_data, prediction_length = create_test_dataset(name, window_size)
@@ -373,8 +420,9 @@ def train(args):
         forecasts = list(forecast_it)
         tss = list(ts_it)
 
-        if name.startswith('psml'):
-            plot_pred_results(forecasts, tss, name, logger.log_dir, psml_23bus_graph_nodes, len(psml_23bus_graph_nodes), prediction_length, 0, 6)
+        if name in psml_milli_dataset_names[-20:]:
+            cols = datacolumn_list[name.split('_')[3]]
+            plot_pred_results(forecasts, tss, name, logger.log_dir, cols, len(cols), prediction_length, 0, 6)
 
         evaluator = Evaluator(num_workers=1, aggregation_strategy=aggregate_valid)
         agg_metrics, item_metrics = evaluator(

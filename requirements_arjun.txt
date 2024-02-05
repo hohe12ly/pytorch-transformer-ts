@@ -4,7 +4,7 @@ torch==2.0.0
 torchvision==0.15.1
 torchaudio==2.0.1
 numpy==1.23.5
-git+https://github.com/hohe12ly/gluonts@powergrid_gluonts-0.13.3
+gluonts==0.13.3
 pytorch_lightning==2.0.4
 datasets
 xformers

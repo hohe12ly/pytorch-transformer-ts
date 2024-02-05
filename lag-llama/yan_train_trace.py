@@ -224,8 +224,9 @@ np.random.seed(seed)
 torch.manual_seed(seed)
 pl.seed_everything(seed)
 
+jobname='psml_w_usms'
 experiment_name = f'data-scaling-context-{context_length}-layer-{n_layer}-n_embd-{n_embd}-n_head-{n_head}-aug-{aug_prob}-{aug_rate}'
-fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "model-size-scaling-logs", str(seed)) # Always creates the experiment directory inside "lag-llama"
+fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "model-size-scaling-logs"+"."+jobname, str(seed)) # Always creates the experiment directory inside "lag-llama"
 os.makedirs(fulldir, exist_ok=True)
 fulldir_experiments = os.path.join(fulldir, "experiments")
 os.makedirs(fulldir_experiments, exist_ok=True)
@@ -372,34 +373,68 @@ if not test:
 print(f'Use checkpoint: {estimator.ckpt_path}')
 
 # %%
-def plot_pred_results(forecasts, tss, name, odir):
-    psml_23bus_graph_nodes = ['101', '102', '151', '152', '153', '154', '201', '202', '203', '204', '205', '206', '211', '3001', '3002', '3003', '3004', '3005', '3006', '3007', '3008', '3011', '3018']
+def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, prediction_length, rolling_eval_index, num_rolling_evals, nodedim_is_first=True):
+    '''
+    plot forecast and ground truth as well quantile info on all graph nodes at the `rolling_eval_index`th 
+    rolling evaluation with `prediction_width`. `forecasts` and `tss` is a linear list of time series data.
+    the index i is determined in the order of `[node_index, rolling_eval_index]` or 
+    `[rolling_eval_index, node_index]`, depending on `nodedim_is_first`. 
 
+    unfortunately, info about `num_rolling_evals` and `num_nodes` is not stored in the dataset metadata. 
+    so this function is dataset specific. you have to know the dataset structure to use this function.
+    '''
     # psml test data order: (node/bus, rolling eval): timesteps data
-    num_buses = 23
-    num_rolling_evals = 6
+    #num_buses = 23
+    #num_rolling_evals = 6
     #prediction_length, num_buses, num_rolling_evals
 
-    fig, axes = plt.subplots(num_buses, 1, figsize=(10, num_buses * 5))
-    for i, ax in enumerate(axes):
-        ax.plot(tss[i * num_rolling_evals][-120:].to_timestamp())
+    fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
+    data_index = [ (i * num_rolling_evals + rolling_eval_index) if nodedim_is_first else (i + rolling_eval_index * num_nodes) for i in range(num_nodes) ]
+    for i, ax in enumerate(axes): # i is node index
+        ax.plot(tss[data_index[i]][-(prediction_length * 2):].to_timestamp())
         plt.sca(ax)
-        forecasts[i * num_rolling_evals].plot(intervals=(0.5, 0.8, 0.9, 0.95), color='m')
+        forecasts[data_index[i]].plot(intervals=(0.5, 0.8, 0.9, 0.95), color='m')
         plt.legend(['ground truth', 'pred mean', '0.5', '0.8', '0.9', '0.95'])
-        plt.title(str(i) + ' : bus ' + psml_23bus_graph_nodes[i])
-    plt.savefig(odir + '/' + 'perf_pred_allbuses_' + name + '.png')
+        plt.title('node: ' + str(i) + ' , node_name: ' + nodelist[i])
+    plt.savefig(odir + '/' + 'perf_pred_' + name + '_' +
+                '_numnodes_' + str(len(nodelist)) + 
+                '_predlen_' + str(prediction_length) + 
+                '_at_rollingeval_' + str(rolling_eval_index) +
+                '.png')
 
-    fig, axes = plt.subplots(num_buses, 1, figsize=(10, num_buses * 5))
+    fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
     for i, ax in enumerate(axes):
-        ax.plot(tss[i * num_rolling_evals].to_timestamp())
+        ax.plot(tss[data_index[i]].to_timestamp())
         plt.sca(ax)
-        plt.title(str(i) + ' : bus ' + psml_23bus_graph_nodes[i] + ' [timesteps: ' + str(len(tss[i * num_rolling_evals])) + ']')
-    plt.savefig(odir + '/' + 'testdata_allbuses_' + name + '.png')
+        plt.title('node: ' + str(i) + ' , node_name: ' + nodelist[i] + ' [timesteps: ' + str(len(tss[data_index[i]])) + ']')
+    plt.savefig(odir + '/' + 'testdata_allbuses_' + name + '_' +
+                '_numnodes_' + str(len(nodelist)) + 
+                '_predlen_' + str(prediction_length) + 
+                '_at_rollingeval_' + str(rolling_eval_index) +
+                '.png')
+
+psml_23bus_graph_nodes = ['101', '102', '151', '152', '153', '154', '201', '202', '203', '204', '205', '206', '211', '3001', '3002', '3003', '3004', '3005', '3006', '3007', '3008', '3011', '3018']
+
+# %%
+# DEBUG: plot_pred_results, skip if running for test evaluation
+# num_nodes = len(psml_23bus_graph_nodes)
+# rolling_eval_index = 0
+# num_rolling_evals = 6
+# nodedim_is_first = True
+
+# fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
+
+# %%
+#type(axes), np.prod(axes.shape) # numpy.ndarray
+# %%
+#data_index = [ (i * num_rolling_evals + rolling_eval_index) if nodedim_is_first else (i + rolling_eval_index * num_nodes) for i in range(num_nodes) ]
+
 
 # %%
 # for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES:
 #for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
-for name in psml_dataset_names[4:]: # PSML case 2, Vm and Va
+#for name in psml_dataset_names[4:]: # PSML case 2, Vm and Va
+for name in psml_dataset_names[4:5]: # PSML case 2, Vm 
     print(f'Predict on {name}')
     if name in psml_dataset_names[4:]:
         test_data, prediction_length = create_psml_test_dataset(name, window_size)
@@ -423,9 +458,7 @@ for name in psml_dataset_names[4:]: # PSML case 2, Vm and Va
     forecasts = list(forecast_it)
     tss = list(ts_it)
 
-    plot_pred_results(forecasts, tss, name, logger.log_dir)
-
-    continue
+    plot_pred_results(forecasts, tss, name, logger.log_dir, psml_23bus_graph_nodes, len(psml_23bus_graph_nodes), prediction_length, 0, 6)
 
     evaluator = Evaluator(num_workers=1, aggregation_strategy=aggregate_valid)
     agg_metrics, item_metrics = evaluator(
@@ -447,6 +480,18 @@ for name in psml_dataset_names[4:]: # PSML case 2, Vm and Va
 
     item_metrics.to_csv(f'{logger.log_dir}/{name}_item_metrics.csv')
 
+
+# %%
+plot_pred_results(forecasts, tss, name, logger.log_dir, psml_23bus_graph_nodes, len(psml_23bus_graph_nodes), prediction_length, 0, 6)
+
+
+# %%
+# DEBUG: test test data metadata
+d = get_dataset('m4_weekly', path=dataset_path)
+# %%
+d.metadata
+# %%
+next(iter(d.test))
 # %%
 # DEBUG: vis test results
 import matplotlib.pyplot as plt

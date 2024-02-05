@@ -1,3 +1,4 @@
+## This script is used to generate GluonTS datasets from the PSML Minute PMU dataset.
 # %%
 import json
 import random
@@ -261,4 +262,18 @@ for x in d.train:
 # %%
 for x in d.test:
     print(x['target'].shape, x['start'], x['feat_static_cat'], x['item_id'])
+# %%
+# test pandas PeriodIndex
+import pandas as pd
+time_index = pd.period_range(
+    start='2024-02-29 00:00:00',
+    freq='U',
+    periods=100_000,
+)
+# %%
+for i in [0, 100, 1000, 2000]:
+    ti = time_index[i]
+    print(i, ':', ti.second, ti.minute, ti.hour, ti.day, ti.month, ti.year)
+# %%
+time_index[100].to_timestamp()
 # %%

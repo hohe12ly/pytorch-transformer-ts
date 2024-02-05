@@ -140,7 +140,7 @@ def train(args):
     pl.seed_everything(args.seed)
 
     experiment_name = f'data-scaling-context-{args.context_length}-layer-{args.n_layer}-n_embd-{args.n_embd}-n_head-{args.n_head}-aug-{args.aug_prob}-{args.aug_rate}'
-    fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "model-size-scaling-logs", str(args.seed)) # Always creates the experiment directory inside "lag-llama"
+    fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "model-size-scaling-logs"+"."+args.jobname, str(args.seed)) # Always creates the experiment directory inside "lag-llama"
     os.makedirs(fulldir, exist_ok=True)
     fulldir_experiments = os.path.join(fulldir, "experiments")
     os.makedirs(fulldir_experiments, exist_ok=True)
@@ -151,12 +151,15 @@ def train(args):
     if "lightning_logs" in os.listdir(fulldir_experiments):
         for lightning_version in os.listdir(fulldir_experiments+"/lightning_logs/"):
             ckpts = glob(fulldir_experiments+"/lightning_logs/" + lightning_version + "/checkpoints/*.ckpt")
-            if len(ckpts): 
-                epoch = int(ckpts[0][ckpts[0].find("=")+1:ckpts[0].find("-step")])
+            #if len(ckpts): 
+            for ckpt in ckpts:
+                #epoch = int(ckpts[0][ckpts[0].find("=")+1:ckpts[0].find("-step")])
+                epoch = int(ckpt[ckpt.find("=")+1:ckpt.find("-step")])
                 if epoch > max_epoch:
                     lightning_version_to_use = lightning_version
                     max_epoch = epoch
-                    ckpt_path = ckpts[0]
+                    #ckpt_path = ckpts[0]
+                    ckpt_path = ckpt
         if lightning_version_to_use: print("Using lightning_version", lightning_version_to_use, "with epoch", max_epoch, "restoring from checkpoint at path", ckpt_path)
     else: print ("no lightning logs found. Training from scratch.")
     
@@ -235,8 +238,8 @@ def train(args):
             validation_data=val_data,
             ckpt_path=ckpt_path
         )
-
-    estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
+    if not args.test:
+        estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
     print(f'Use checkpoint: {estimator.ckpt_path}')
 
     # for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES:
@@ -284,6 +287,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #estimator args
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--jobname", type=str, required=True)
     parser.add_argument("--context_length", type=int, default=256)
     parser.add_argument("--n_layer", type=int, default=4)
     parser.add_argument("--n_embd", type=int, default=256)

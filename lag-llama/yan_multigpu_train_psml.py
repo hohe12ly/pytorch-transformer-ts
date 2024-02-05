@@ -27,6 +27,8 @@ from gluonts.transform import ValidationSplitSampler
 from estimator import LagLlamaEstimator
 import os
 
+import matplotlib.pyplot as plt
+
 #dataset_path = Path("/home/toolkit/datasets")
 dataset_path = Path("/mnt/data/home/yxl/test/test_ai/datasets")
 
@@ -184,6 +186,49 @@ def create_psml_test_dataset(name, window_size):
         else:
             data.append(x)
     return ListDataset(data, freq=freq), prediction_length
+
+def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, prediction_length, rolling_eval_index, num_rolling_evals, nodedim_is_first=True):
+    '''
+    plot forecast and ground truth as well quantile info on all graph nodes at the `rolling_eval_index`th 
+    rolling evaluation with `prediction_width`. `forecasts` and `tss` is a linear list of time series data.
+    the index i is determined in the order of `[node_index, rolling_eval_index]` or 
+    `[rolling_eval_index, node_index]`, depending on `nodedim_is_first`. 
+
+    unfortunately, info about `num_rolling_evals` and `num_nodes` is not stored in the dataset metadata. 
+    so this function is dataset specific. you have to know the dataset structure to use this function.
+    '''
+    # psml test data order: (node/bus, rolling eval): timesteps data
+    #num_buses = 23
+    #num_rolling_evals = 6
+    #prediction_length, num_buses, num_rolling_evals
+
+    fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
+    data_index = [ (i * num_rolling_evals + rolling_eval_index) if nodedim_is_first else (i + rolling_eval_index * num_nodes) for i in range(num_nodes) ]
+    for i, ax in enumerate(axes): # i is node index
+        ax.plot(tss[data_index[i]][-(prediction_length * 2):].to_timestamp())
+        plt.sca(ax)
+        forecasts[data_index[i]].plot(intervals=(0.5, 0.8, 0.9, 0.95), color='m')
+        plt.legend(['ground truth', 'pred mean', '0.5', '0.8', '0.9', '0.95'])
+        plt.title('node: ' + str(i) + ' , node_name: ' + nodelist[i])
+    plt.savefig(odir + '/' + 'perf_pred_' + name + '_' +
+                '_numnodes_' + str(len(nodelist)) + 
+                '_predlen_' + str(prediction_length) + 
+                '_at_rollingeval_' + str(rolling_eval_index) +
+                '.png')
+
+    fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
+    for i, ax in enumerate(axes):
+        ax.plot(tss[data_index[i]].to_timestamp())
+        plt.sca(ax)
+        plt.title('node: ' + str(i) + ' , node_name: ' + nodelist[i] + ' [timesteps: ' + str(len(tss[data_index[i]])) + ']')
+    plt.savefig(odir + '/' + 'testdata_allbuses_' + name + '_' +
+                '_numnodes_' + str(len(nodelist)) + 
+                '_predlen_' + str(prediction_length) + 
+                '_at_rollingeval_' + str(rolling_eval_index) +
+                '.png')
+
+psml_23bus_graph_nodes = ['101', '102', '151', '152', '153', '154', '201', '202', '203', '204', '205', '206', '211', '3001', '3002', '3003', '3004', '3005', '3006', '3007', '3008', '3011', '3018']
+
 # YL end
 
 def train(args):
@@ -193,7 +238,7 @@ def train(args):
     pl.seed_everything(args.seed)
 
     experiment_name = f'data-scaling-context-{args.context_length}-layer-{args.n_layer}-n_embd-{args.n_embd}-n_head-{args.n_head}-aug-{args.aug_prob}-{args.aug_rate}'
-    fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "model-size-scaling-logs", str(args.seed)) # Always creates the experiment directory inside "lag-llama"
+    fulldir = os.path.join(pathlib.Path(__file__).parent.resolve(), "model-size-scaling-logs"+"."+args.jobname, str(args.seed)) # Always creates the experiment directory inside "lag-llama"
     os.makedirs(fulldir, exist_ok=True)
     fulldir_experiments = os.path.join(fulldir, "experiments")
     os.makedirs(fulldir_experiments, exist_ok=True)
@@ -204,12 +249,15 @@ def train(args):
     if "lightning_logs" in os.listdir(fulldir_experiments):
         for lightning_version in os.listdir(fulldir_experiments+"/lightning_logs/"):
             ckpts = glob(fulldir_experiments+"/lightning_logs/" + lightning_version + "/checkpoints/*.ckpt")
-            if len(ckpts): 
-                epoch = int(ckpts[0][ckpts[0].find("=")+1:ckpts[0].find("-step")])
+            #if len(ckpts): 
+            for ckpt in ckpts:
+                #epoch = int(ckpts[0][ckpts[0].find("=")+1:ckpts[0].find("-step")])
+                epoch = int(ckpt[ckpt.find("=")+1:ckpt.find("-step")])
                 if epoch > max_epoch:
                     lightning_version_to_use = lightning_version
                     max_epoch = epoch
-                    ckpt_path = ckpts[0]
+                    #ckpt_path = ckpts[0]
+                    ckpt_path = ckpt
         if lightning_version_to_use: print("Using lightning_version", lightning_version_to_use, "with epoch", max_epoch, "restoring from checkpoint at path", ckpt_path)
     else: print ("no lightning logs found. Training from scratch.")
     
@@ -298,8 +346,8 @@ def train(args):
             validation_data=val_data,
             ckpt_path=ckpt_path
         )
-
-    estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
+    if not args.test:
+        estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
     print(f'Use checkpoint: {estimator.ckpt_path}')
 
     # for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES:
@@ -323,6 +371,9 @@ def train(args):
             dataset=test_data,
             predictor=predictor,
         )
+
+        if name.startswith('psml'):
+            plot_pred_results(forecasts, tss, name, logger.log_dir, psml_23bus_graph_nodes, len(psml_23bus_graph_nodes), prediction_length, 0, 6)
 
         forecasts = list(forecast_it)
         tss = list(ts_it)
@@ -352,6 +403,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     #estimator args
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--jobname", type=str, required=True)
     parser.add_argument("--context_length", type=int, default=256)
     parser.add_argument("--n_layer", type=int, default=4)
     parser.add_argument("--n_embd", type=int, default=256)
