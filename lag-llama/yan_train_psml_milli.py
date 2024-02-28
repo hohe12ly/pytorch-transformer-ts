@@ -1,5 +1,5 @@
 ## training and testing on PSML Millisecond Forced Oscillation dataset
-
+# %%
 import argparse
 import json
 import random
@@ -31,8 +31,6 @@ from estimator import LagLlamaEstimator
 import os
 
 import matplotlib.pyplot as plt
-
-import glob
 
 #dataset_path = Path("/home/toolkit/datasets")
 dataset_path = Path("/mnt/data/home/yxl/test/test_ai/datasets")
@@ -75,6 +73,7 @@ TRAIN_DATASET_NAMES = [
     "wind_farms_without_missing",
 ]
 
+# %%
 class CombinedDatasetIterator:
     def __init__(self, datasets, seed, weights):
         self._datasets = [iter(el) for el in datasets]
@@ -142,7 +141,7 @@ def create_test_dataset(name, window_size):
 
 # YL start
 # PSML Millisecond Forced Oscillation dataset
-psml_milli_dataset_names = [ os.path.basename(p) for p in glob.glob(str(dataset_path / "Forced_Oscillation_*")) ]
+psml_milli_dataset_names = [ os.path.basename(p) for p in glob(str(dataset_path / "Forced_Oscillation_*")) ]
 
 def generate_column_map():
     sample_dir = '/mnt/data/home/yxl/data/PSML/milli-pmu/Forced_Oscillation/row_2'
@@ -252,6 +251,9 @@ def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, predictio
 
     fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
     data_index = [ (i * num_rolling_evals + rolling_eval_index) if nodedim_is_first else (i + rolling_eval_index * num_nodes) for i in range(num_nodes) ]
+    
+    #print('shape of each tss: ', [ (i, data_index[i], tss[data_index[i]].shape) for i in range(num_nodes) ] )
+    
     for i, ax in enumerate(axes): # i is node index
         ax.plot(tss[data_index[i]][-(prediction_length * 2):].to_timestamp())
         plt.sca(ax)
@@ -274,8 +276,27 @@ def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, predictio
                 '_predlen_' + str(prediction_length) + 
                 '_at_rollingeval_' + str(rolling_eval_index) +
                 '.png')
-
-
+    
+    # save data
+    np.save(
+        odir + '/' + 'testdata_allbuses_' + name + '_' +
+        '_numnodes_' + str(len(nodelist)) + 
+        '_predlen_' + str(prediction_length) + 
+        '_at_rollingeval_' + str(rolling_eval_index) +
+        '.npy'
+        ,
+       np.array([ tss[data_index[i]].values.reshape(-1) for i in range(num_nodes) ]) # shape of tss[i].values: (context_length + prediction_length,)
+    )
+    np.save(
+        odir + '/' + 'forecastdata_allbuses_' + name + '_' +
+        '_numnodes_' + str(len(nodelist)) + 
+        '_predlen_' + str(prediction_length) + 
+        '_at_rollingeval_' + str(rolling_eval_index) +
+        '.npy'
+        ,
+        np.array([ forecasts[data_index[i]].samples for i in range(num_nodes) ]) # shape of forecasts[i].samples: (num_samples, prediction_length)
+    )
+     
 # YL end
 
 def train(args):
@@ -422,7 +443,7 @@ def train(args):
 
         if name in psml_milli_dataset_names[-20:]:
             cols = datacolumn_list[name.split('_')[3]]
-            plot_pred_results(forecasts, tss, name, logger.log_dir, cols, len(cols), prediction_length, 0, 6)
+            plot_pred_results(forecasts, tss, name, logger.log_dir, cols, len(cols), prediction_length, 0, 5)
 
         evaluator = Evaluator(num_workers=1, aggregation_strategy=aggregate_valid)
         agg_metrics, item_metrics = evaluator(

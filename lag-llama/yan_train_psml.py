@@ -5,7 +5,7 @@ import numpy as np
 
 # YL
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 import torch
 from pytorch_lightning.loggers import CSVLogger
@@ -204,6 +204,9 @@ def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, predictio
 
     fig, axes = plt.subplots(num_nodes, 1, figsize=(10, num_nodes * 5))
     data_index = [ (i * num_rolling_evals + rolling_eval_index) if nodedim_is_first else (i + rolling_eval_index * num_nodes) for i in range(num_nodes) ]
+    
+    #print('shape of each tss: ', [ (i, data_index[i], tss[data_index[i]].shape) for i in range(num_nodes) ] )
+    
     for i, ax in enumerate(axes): # i is node index
         ax.plot(tss[data_index[i]][-(prediction_length * 2):].to_timestamp())
         plt.sca(ax)
@@ -226,6 +229,26 @@ def plot_pred_results(forecasts, tss, name, odir, nodelist, num_nodes, predictio
                 '_predlen_' + str(prediction_length) + 
                 '_at_rollingeval_' + str(rolling_eval_index) +
                 '.png')
+    
+    # save data
+    np.save(
+        odir + '/' + 'testdata_allbuses_' + name + '_' +
+        '_numnodes_' + str(len(nodelist)) + 
+        '_predlen_' + str(prediction_length) + 
+        '_at_rollingeval_' + str(rolling_eval_index) +
+        '.npy'
+        ,
+       np.array([ tss[data_index[i]].values.reshape(-1) for i in range(num_nodes) ]) # shape of tss[i].values: (context_length + prediction_length,)
+    )
+    np.save(
+        odir + '/' + 'forecastdata_allbuses_' + name + '_' +
+        '_numnodes_' + str(len(nodelist)) + 
+        '_predlen_' + str(prediction_length) + 
+        '_at_rollingeval_' + str(rolling_eval_index) +
+        '.npy'
+        ,
+        np.array([ forecasts[data_index[i]].samples for i in range(num_nodes) ]) # shape of forecasts[i].samples: (num_samples, prediction_length)
+    )
 
 psml_23bus_graph_nodes = ['101', '102', '151', '152', '153', '154', '201', '202', '203', '204', '205', '206', '211', '3001', '3002', '3003', '3004', '3005', '3006', '3007', '3008', '3011', '3018']
 
@@ -348,13 +371,16 @@ def train(args):
         estimator.ckpt_path = train_output.trainer.checkpoint_callback.best_model_path
     print(f'Use checkpoint: {estimator.ckpt_path}')
 
+    test_context_length = 1024
+    test_prediction_length = 60
     # for name in ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES:
-    for name in psml_dataset_names[4:] + ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
-        print(f'Predict on {name}')
-        if name in psml_dataset_names[4:]:
-            test_data, prediction_length = create_psml_test_dataset(name, window_size)
+    for name in psml_dataset_names[4:]: # + ['m4_weekly', 'traffic'] + TRAIN_DATASET_NAMES[0:5]:
+        print(f'Predict on {name} w context length {test_context_length}, prediction length {test_prediction_length}')
+        test_window_size = test_context_length + test_prediction_length # + max(estimator.lags_seq) 
+        if name in psml_dataset_names:
+            test_data, prediction_length = create_psml_test_dataset(name, test_window_size)
         else:
-            test_data, prediction_length = create_test_dataset(name, window_size)
+            test_data, prediction_length = create_test_dataset(name, test_window_size)
         print(f'{name} prediction length: {prediction_length}')
 
         # Adapt evaluator to new dataset

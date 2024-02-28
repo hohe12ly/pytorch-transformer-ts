@@ -308,13 +308,63 @@ for raw_dataset_name in data_raw_dataset_names:
 # # DEBUG: load dataset test
 # print('the last dataset:', dataset_path)
 # %%
-# d = load_datasets(
-#         metadata=dataset_path,
-#         train=dataset_path / "train",
-#         test=dataset_path / "test",
-#     )
+dataset_path = Path('/mnt/data/home/yxl/test/test_ai/datasets/Forced_Oscillation_99_trans_Voltage')
+d = load_datasets(
+        metadata=dataset_path,
+        train=dataset_path / "train",
+        test=dataset_path / "test",
+    )
 # %%
-# d.metadata
+d.metadata
+# %%
+d.train
+# %%
+raw_dataset_name = data_raw_dataset_names[400] # index 90 trnas, raw row_54
+raw_dataset = data_raw_datasets[raw_dataset_name]
+print(raw_dataset['raw_data_path'])
+# %%
+df_raw = pd.read_csv(raw_dataset['raw_data_path'], sep='\s*,\s*', nrows=data_num_time_steps) # index_col=0, parse_dates=True
+df_raw.rename(columns=column_map[raw_dataset_name.split('_')[-1]], inplace=True)
+df_raw.columns
+# %%
+print(raw_dataset['raw_data_path'])
+df_raw.head()
+# %%
+df_raw.set_index('Time', inplace=True)
+df_raw.head()
+# %%
+df_raw[['Bus_102', 'Bus_151', 'Bus_152', 'Bus_201']].plot(grid=True, xticks=np.arange(0,4,0.1))
+# %%
+df_raw[['P_102_151_1', 'P_151_152_1', 'P_151_152_2', 'P_151_201_1']].plot(grid=True, xticks=np.arange(0,4,0.1))
+# %%
+df_raw[['Q_102_151_1', 'Q_151_152_1', 'Q_151_152_2', 'Q_151_201_1']].plot(grid=True, xticks=np.arange(0,4,0.1))
+
+# %%
+raw_dataset_name = data_raw_dataset_names[401] # index 90 dist
+raw_dataset = data_raw_datasets[raw_dataset_name]
+print(raw_dataset['raw_data_path'])
+df_raw = pd.read_csv(raw_dataset['raw_data_path'], sep='\s*,\s*', nrows=data_num_time_steps) # index_col=0, parse_dates=True
+df_raw.rename(columns=column_map[raw_dataset_name.split('_')[-1]], inplace=True)
+df_raw.set_index('Time', inplace=True)
+print(df_raw.columns)
+df_raw.head()
+# %%
+df_raw[['3005.sourcebus.1', '3005.sourcebus.2', '3005.sourcebus.3']].plot(grid=True, xticks=np.arange(0,4,0.1))
+# %%
+df_raw[['3008.650.1', '3008.650.2', '3008.650.3']].plot(grid=True, xticks=np.arange(0,4,0.1))
+# %%
+df_raw[['3005.650.1', '3005.650.2', '3005.650.3']].plot(grid=True, xticks=np.arange(0,4,0.1))
+# %%
+df_raw[['3008.632.1', '3008.632.2', '3008.632.3']].plot(grid=True, xticks=np.arange(0,4,0.1))
+# %%
+df_raw[['3008.671.1', '3008.671.2', '3008.671.3']].plot(grid=True, xticks=np.arange(0,4,0.1))
+
+
+# %%
+for i, n in enumerate(data_raw_dataset_names):
+    if n == 'Forced_Oscillation_90_dist':
+        print(i, n)
+        break
 # %%
 # for x in d.train:
 #     print(x['target'].shape, x['start'], x['feat_static_cat'], x['item_id'])
